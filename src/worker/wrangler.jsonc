@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/schema.json",
+  "name": "ai-web",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "kv_namespaces": [
+    {
+      "binding": "METADATA",
+      "id": "YOUR_KV_ID_HERE"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "FILES",
+      "bucket_name": "ai-web-files"
+    }
+  ]
+}
