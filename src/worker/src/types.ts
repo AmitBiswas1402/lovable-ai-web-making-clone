@@ -49,6 +49,20 @@ export interface AppVariables {
   userId: string;
 }
 
+/**
+ * Shared Project shape used by worker routes.
+ */
+export interface Project {
+  id: string;
+  userId: string;
+  name?: string;
+  model?: string;
+  currentVersion?: number;
+  createdAt: string;
+  updatedAt: string;
+  [key: string]: unknown;
+}
+
 // Fallback declarations when the @cloudflare/workers-types package isn't installed.
 // These are intentionally minimal so local typechecking succeeds.
 declare global {
