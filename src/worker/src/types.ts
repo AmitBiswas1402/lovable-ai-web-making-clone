@@ -76,6 +76,8 @@ declare global {
     put?(key: string, value: BodyInit, options?: unknown): Promise<void>;
     get?(key: string): Promise<Response | null>;
     delete?(key: string): Promise<void>;
+    // List objects under a prefix. Minimal shape used in the worker.
+    list?(options?: { prefix?: string }): Promise<{ objects: Array<{ key: string }> } | null>;
   }
 }
 
