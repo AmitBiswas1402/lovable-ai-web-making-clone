@@ -232,4 +232,17 @@ projectRoutes.delete("/:id", async (c) => {
   return c.json({ message: "Project deleted successfully", success: true });
 })
 
+projectRoutes.post("/", async (c) => {
+  const userId = c.var.userId;
+  const body = await c.req.json<{ name: string; model: string; description?: string }>(); 
+
+  const sanitizedName = sanitizeProjectName(body.name);
+
+  if (!sanitizedName) {
+    return c.json({ error: "Invalid project name", code: "INVALID_PROJECT_NAME" }, 400);
+  }
+
+  
+})
+
 export { projectRoutes };
