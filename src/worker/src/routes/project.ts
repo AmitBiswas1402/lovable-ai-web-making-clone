@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { AppVariables, Env, Project } from "../types";
 import { sanitizeProjectName } from "../services/sanitize";
+import { getCredits, FREE_PROJECT_LIMIT } from "../services/credits";
 
 const projectRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -242,7 +243,17 @@ projectRoutes.post("/", async (c) => {
     return c.json({ error: "Invalid project name", code: "INVALID_PROJECT_NAME" }, 400);
   }
 
-  
+  const credits = await getCredits(userId, c.env);
+
+  if (credits.plan === "free") {
+    const rawExistingIds = await c.env.METADATA.get?.(`user-projects:${userId}`);
+    const existingIds: string[] = rawExistingIds ? (JSON.parse(rawExistingIds) as string[]) : [];
+
+    const projectCount = existingIds.length;
+    if (projectCount >= FREE_PROJECT_LIMIT) {
+      return c.json({ error: "Free plan project limit reached", code: "FREE_PLAN_LIMIT_REACHED" }, 403);
+    }
+  }
 })
 
 export { projectRoutes };
