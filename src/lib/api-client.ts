@@ -60,7 +60,39 @@ export function createApiClient(getToken: GetTokenFunction) {
         authenticatedFetch<{ projects: Project[] }>(
           getToken,
           "/api/projects",
+        ),
+      get: (id: string) => 
+        authenticatedFetch<{ projects: Project[] }>(
+          getToken,
+          `/api/projects/${id}`,          
+        ),
+      create: (data: { name: string; modelId: string }) => 
+        authenticatedFetch<{ project: Project }>(
+          getToken,
+          "/api/projects",
+          {
+            method: "POST",
+            body: JSON.stringify(data),
+          }
+        ),
+      update: (id: string, data: { name?: string; model?: string }) =>
+        authenticatedFetch<{ project: Project }>(
+          getToken,
+          `/api/projects/${id}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify(data),
+          }
+        ),
+      delete: (id: string) =>
+        authenticatedFetch<{ success: boolean }>(
+          getToken, 
+          `/api/projects/${id}`,
+          {
+            method: "DELETE",
+          }
         )
+
     }
   }
 }

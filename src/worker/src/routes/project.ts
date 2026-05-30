@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import { AppVariables, Env, Project } from "../types";
 import { sanitizeProjectName } from "../services/sanitize";
 import { getCredits, FREE_PROJECT_LIMIT } from "../services/credits";
+import { nanoid } from "nanoid";
+import { createInitialVersion } from "../ai/default-project";
 
 const projectRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -58,19 +60,28 @@ projectRoutes.post("/:id", async (c) => {
   }
 
   if (typeof c.env.METADATA.get !== "function") {
-    return c.json({ error: "Project not found", code: "PROJECT_NOT_FOUND" }, 404);
+    return c.json(
+      { error: "Project not found", code: "PROJECT_NOT_FOUND" },
+      404,
+    );
   }
 
   const rawProject = await c.env.METADATA.get?.(`project:${projectId}`);
   if (!rawProject) {
-    return c.json({ error: "Project not found", code: "PROJECT_NOT_FOUND" }, 404);
+    return c.json(
+      { error: "Project not found", code: "PROJECT_NOT_FOUND" },
+      404,
+    );
   }
 
   let project: Project | null = null;
   try {
     project = JSON.parse(rawProject) as Project;
   } catch (e) {
-    return c.json({ error: "Project parse error", code: "PROJECT_PARSE_ERROR" }, 500);
+    return c.json(
+      { error: "Project parse error", code: "PROJECT_PARSE_ERROR" },
+      500,
+    );
   }
 
   if ((project as any).userId !== userId) {
@@ -78,7 +89,7 @@ projectRoutes.post("/:id", async (c) => {
   }
 
   return c.json({ project });
-})
+});
 
 projectRoutes.get("/:id/files", async (c) => {
   const userId = c.var.userId;
@@ -88,19 +99,28 @@ projectRoutes.get("/:id/files", async (c) => {
   }
 
   if (typeof c.env.METADATA.get !== "function") {
-    return c.json({ error: "Project not found", code: "PROJECT_NOT_FOUND" }, 404);
+    return c.json(
+      { error: "Project not found", code: "PROJECT_NOT_FOUND" },
+      404,
+    );
   }
 
   const rawProject = await c.env.METADATA.get?.(`project:${projectId}`);
   if (!rawProject) {
-    return c.json({ error: "Project not found", code: "PROJECT_NOT_FOUND" }, 404);
+    return c.json(
+      { error: "Project not found", code: "PROJECT_NOT_FOUND" },
+      404,
+    );
   }
 
   let project: Project;
   try {
     project = JSON.parse(rawProject) as Project;
   } catch (e) {
-    return c.json({ error: "Project parse error", code: "PROJECT_PARSE_ERROR" }, 500);
+    return c.json(
+      { error: "Project parse error", code: "PROJECT_PARSE_ERROR" },
+      500,
+    );
   }
 
   if ((project as any).userId !== userId) {
@@ -111,18 +131,111 @@ projectRoutes.get("/:id/files", async (c) => {
   const rawVersion = await c.env.METADATA.get?.(versionKey);
 
   if (!rawVersion) {
-    return c.json({ error: "Project version not found", code: "VERSION_NOT_FOUND" }, 404);
+    return c.json(
+      { error: "Project version not found", code: "VERSION_NOT_FOUND" },
+      404,
+    );
   }
 
   let version: { files: Array<{ path: string; content: string }> };
   try {
-    version = JSON.parse(rawVersion) as { files: Array<{ path: string; content: string }> };
+    version = JSON.parse(rawVersion) as {
+      files: Array<{ path: string; content: string }>;
+    };
   } catch (e) {
-    return c.json({ error: "Version parse error", code: "VERSION_PARSE_ERROR" }, 500);
+    return c.json(
+      { error: "Version parse error", code: "VERSION_PARSE_ERROR" },
+      500,
+    );
   }
 
   return c.json({ files: version.files, version: project.currentVersion });
-})
+});
+
+projectRoutes.post("/", async (c) => {
+  const userId = c.var.userId;
+  const body = await c.req.json<{
+    name: string;
+    model: string;
+    description?: string;
+  }>();
+
+  const sanitizedName = sanitizeProjectName(body.name);
+
+  if (!sanitizedName) {
+    return c.json(
+      { error: "Invalid project name", code: "INVALID_PROJECT_NAME" },
+      400,
+    );
+  }
+
+  const credits = await getCredits(userId, c.env);
+
+  if (credits.plan === "free") {
+    const rawExistingIds = await c.env.METADATA.get?.(
+      `user-projects:${userId}`,
+    );
+    const existingIds: string[] = rawExistingIds
+      ? (JSON.parse(rawExistingIds) as string[])
+      : [];
+    const projectCount = existingIds.length;
+    if (projectCount >= FREE_PROJECT_LIMIT) {
+      return c.json(
+        {
+          error: "Free plan project limit reached",
+          limit: FREE_PROJECT_LIMIT,
+          code: "FREE_PLAN_LIMIT_REACHED",
+        },
+        403,
+      );
+    }
+  }
+
+  const projectId = nanoid(12);
+  const now = new Date();
+
+  const project: Project = {
+    id: projectId,
+    userId,
+    name: sanitizedName,
+    model: body.model || "gemini-2.5-flash",
+    currentVersion: 0,
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  };
+
+  const initialVersion = createInitialVersion(project.name!, project.model!);
+
+  const rawExistingIds2 = await c.env.METADATA.get?.(`user-projects:${userId}`);
+  const existingIds2: string[] = rawExistingIds2
+    ? (JSON.parse(rawExistingIds2) as string[])
+    : [];
+  const updatedIds = existingIds2.length
+    ? [...existingIds2, projectId]
+    : [projectId];
+
+  const ops: Promise<unknown>[] = [];
+  if (typeof c.env.METADATA.put === "function") {
+    ops.push(
+      c.env.METADATA.put(`project:${projectId}`, JSON.stringify(project)),
+    );
+    ops.push(
+      c.env.METADATA.put(`user-projects:${userId}`, JSON.stringify(updatedIds)),
+    );
+  }
+  if (typeof c.env.FILES.put === "function") {
+    ops.push(
+      c.env.FILES.put(
+        `${projectId}/v0/files.json`,
+        JSON.stringify({ files: initialVersion.files }),
+      ),
+    );
+  }
+
+  await Promise.all(ops);
+
+  return c.json({ project }, 201);
+});
 
 projectRoutes.patch("/:id", async (c) => {
   const userId = c.var.userId;
@@ -132,19 +245,28 @@ projectRoutes.patch("/:id", async (c) => {
   }
 
   if (typeof c.env.METADATA.get !== "function") {
-    return c.json({ error: "Project not found", code: "PROJECT_NOT_FOUND" }, 404);
+    return c.json(
+      { error: "Project not found", code: "PROJECT_NOT_FOUND" },
+      404,
+    );
   }
 
   const rawProject = await c.env.METADATA.get?.(`project:${projectId}`);
   if (!rawProject) {
-    return c.json({ error: "Project not found", code: "PROJECT_NOT_FOUND" }, 404);
+    return c.json(
+      { error: "Project not found", code: "PROJECT_NOT_FOUND" },
+      404,
+    );
   }
 
   let project: Project;
   try {
     project = JSON.parse(rawProject) as Project;
   } catch (e) {
-    return c.json({ error: "Project parse error", code: "PROJECT_PARSE_ERROR" }, 500);
+    return c.json(
+      { error: "Project parse error", code: "PROJECT_PARSE_ERROR" },
+      500,
+    );
   }
 
   if ((project as any).userId !== userId) {
@@ -167,13 +289,16 @@ projectRoutes.patch("/:id", async (c) => {
   (project as any).updatedAt = new Date().toISOString();
 
   if (typeof c.env.METADATA.put !== "function") {
-    return c.json({ error: "KV put not available", code: "KV_PUT_UNAVAILABLE" }, 500);
+    return c.json(
+      { error: "KV put not available", code: "KV_PUT_UNAVAILABLE" },
+      500,
+    );
   }
 
   await c.env.METADATA.put(`project:${projectId}`, JSON.stringify(project));
 
   return c.json({ project });
-})
+});
 
 projectRoutes.delete("/:id", async (c) => {
   const userId = c.var.userId;
@@ -183,19 +308,28 @@ projectRoutes.delete("/:id", async (c) => {
   }
 
   if (typeof c.env.METADATA.get !== "function") {
-    return c.json({ error: "Project not found", code: "PROJECT_NOT_FOUND" }, 404);
+    return c.json(
+      { error: "Project not found", code: "PROJECT_NOT_FOUND" },
+      404,
+    );
   }
 
   const rawProject = await c.env.METADATA.get?.(`project:${projectId}`);
   if (!rawProject) {
-    return c.json({ error: "Project not found", code: "PROJECT_NOT_FOUND" }, 404);
+    return c.json(
+      { error: "Project not found", code: "PROJECT_NOT_FOUND" },
+      404,
+    );
   }
 
   let project: Project;
   try {
     project = JSON.parse(rawProject) as Project;
   } catch (e) {
-    return c.json({ error: "Project parse error", code: "PROJECT_PARSE_ERROR" }, 500);
+    return c.json(
+      { error: "Project parse error", code: "PROJECT_PARSE_ERROR" },
+      500,
+    );
   }
 
   if ((project as any).userId !== userId) {
@@ -203,7 +337,9 @@ projectRoutes.delete("/:id", async (c) => {
   }
 
   const rawExistingIds = await c.env.METADATA.get?.(`user-projects:${userId}`);
-  const existingIds: string[] = rawExistingIds ? (JSON.parse(rawExistingIds) as string[]) : [];
+  const existingIds: string[] = rawExistingIds
+    ? (JSON.parse(rawExistingIds) as string[])
+    : [];
   const updatedIds = existingIds.filter((id) => id !== projectId);
 
   const deletePromises: Promise<unknown>[] = [];
@@ -225,35 +361,14 @@ projectRoutes.delete("/:id", async (c) => {
     ops.push(c.env.METADATA.delete(`${projectId}/version`));
   }
   if (typeof c.env.METADATA.put === "function") {
-    ops.push(c.env.METADATA.put(`user-projects:${userId}`, JSON.stringify(updatedIds)));
+    ops.push(
+      c.env.METADATA.put(`user-projects:${userId}`, JSON.stringify(updatedIds)),
+    );
   }
 
   await Promise.all([...ops, ...deletePromises]);
 
   return c.json({ message: "Project deleted successfully", success: true });
-})
-
-projectRoutes.post("/", async (c) => {
-  const userId = c.var.userId;
-  const body = await c.req.json<{ name: string; model: string; description?: string }>(); 
-
-  const sanitizedName = sanitizeProjectName(body.name);
-
-  if (!sanitizedName) {
-    return c.json({ error: "Invalid project name", code: "INVALID_PROJECT_NAME" }, 400);
-  }
-
-  const credits = await getCredits(userId, c.env);
-
-  if (credits.plan === "free") {
-    const rawExistingIds = await c.env.METADATA.get?.(`user-projects:${userId}`);
-    const existingIds: string[] = rawExistingIds ? (JSON.parse(rawExistingIds) as string[]) : [];
-
-    const projectCount = existingIds.length;
-    if (projectCount >= FREE_PROJECT_LIMIT) {
-      return c.json({ error: "Free plan project limit reached", code: "FREE_PLAN_LIMIT_REACHED" }, 403);
-    }
-  }
-})
+});
 
 export { projectRoutes };

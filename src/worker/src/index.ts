@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { AppVariables, Env } from './types'
 import { cors } from 'hono/cors'
 import { authMiddleware } from './middleware/auth';
+import { projectRoutes } from './routes/project';
 
 const app = new Hono<{Bindings: Env, Variables: AppVariables}>();
 
@@ -22,5 +23,7 @@ app.get("/health", (c) => {
 })
 
 app.get("/api/*", authMiddleware);
+
+app.route("/api/projects", projectRoutes);
 
 export default app;

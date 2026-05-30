@@ -63,6 +63,9 @@ export interface Project {
   [key: string]: unknown;
 }
 
+// Re-export project-related types from the `types/project` module
+export type { ProjectFile, Version } from "./types/project";
+
 // Fallback declarations when the @cloudflare/workers-types package isn't installed.
 // These are intentionally minimal so local typechecking succeeds.
 declare global {
